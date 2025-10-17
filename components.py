@@ -49,6 +49,15 @@ def display_conversation_log():
 
 def display_search_llm_response(resp):
     text, sources = _extract_answer_and_sources(resp)
+    # 検索モードでは、関連ありの場合に空文字を返すフローがあるため、空文字時のUXを補強
+    if isinstance(text, str) and text.strip() == "":
+        if sources:
+            st.info("関連する社内文書が見つかりました。下記の参照ドキュメントをご確認ください。")
+            _render_sources(sources)
+        else:
+            st.warning(getattr(ct, "NO_DOC_MATCH_ANSWER", "該当資料なし"))
+        return text
+
     st.markdown(text)
     _render_sources(sources)
     return text
@@ -56,6 +65,12 @@ def display_search_llm_response(resp):
 
 def display_contact_llm_response(resp):
     text, sources = _extract_answer_and_sources(resp)
+    # 問い合わせモードでも万一空文字ならフォールバック
+    if isinstance(text, str) and text.strip() == "":
+        st.warning(getattr(ct, "INQUIRY_NO_MATCH_ANSWER", "回答に必要な情報が見つかりませんでした。"))
+        _render_sources(sources)
+        return text
+
     st.markdown(text)
     _render_sources(sources)
     return text
@@ -81,9 +96,17 @@ def _extract_answer_and_sources(resp: Any) -> Tuple[str, List[Dict[str, Any]]]:
         getattr(resp, "answer", None)
         or getattr(resp, "content", None)
         or getattr(resp, "text", None)
+        or getattr(resp, "output_text", None)
+        or getattr(resp, "result", None)
+        or getattr(resp, "message", None)
+        or getattr(resp, "response", None)
         or (resp.get("answer") if isinstance(resp, dict) else None)
         or (resp.get("content") if isinstance(resp, dict) else None)
         or (resp.get("text") if isinstance(resp, dict) else None)
+        or (resp.get("output_text") if isinstance(resp, dict) else None)
+        or (resp.get("result") if isinstance(resp, dict) else None)
+        or (resp.get("message") if isinstance(resp, dict) else None)
+        or (resp.get("response") if isinstance(resp, dict) else None)
         or str(resp)
     )
 
@@ -99,7 +122,7 @@ def _extract_answer_and_sources(resp: Any) -> Tuple[str, List[Dict[str, Any]]]:
             pass
     # dict キーから
     if isinstance(resp, dict):
-        for key in ("source_documents", "sources", "context", "documents"):
+        for key in ("source_documents", "sources", "context", "documents", "docs", "relevant_docs", "retrieved_docs"):
             if key in resp and isinstance(resp[key], Iterable) and not isinstance(resp[key], (str, bytes)):
                 try:
                     raw_sources.extend(list(resp[key]))
@@ -173,5 +196,10 @@ def _render_sources(sources: List[Dict[str, Any]]) -> None:
             continue
         is_link = isinstance(src, str) and src.startswith(("http://", "https://"))
         icon = ct.LINK_SOURCE_ICON if is_link else ct.DOC_SOURCE_ICON
-        page_text = f" p.{page}" if page is not None else ""
+        # 0 始まりのページ番号に対処（0 の時だけ 1 として表示）
+        if isinstance(page, int) and page == 0:
+            display_page = 1
+        else:
+            display_page = page
+        page_text = f" p.{display_page}" if display_page is not None else ""
         st.markdown(f"- {icon}{src}{page_text}")
