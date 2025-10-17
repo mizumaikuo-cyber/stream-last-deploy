@@ -279,49 +279,90 @@ def _try_render_department_listing(sources: List[Dict[str, Any]], dept_name: str
     if not csv_paths:
         return False
 
-    # pandas は遅延 import（無い環境でも UI は壊さない）
+    # pandas は遅延 import（無い環境でも UI は壊さない）。無ければ csv モジュールで代替。
     try:
         import pandas as pd  # type: ignore
     except Exception:
-        st.info("CSV から一覧を生成するには pandas が必要です。requirements に pandas を追加してください。")
-        return False
+        pd = None  # type: ignore
 
     for path in csv_paths:
-        try:
-            df = pd.read_csv(path, encoding="utf-8")
-        except Exception:
-            # 一部 CSV は BOM 付きなどのためリトライ
+        if pd is not None:
+            # pandas あり
             try:
-                df = pd.read_csv(path, encoding="utf-8-sig")
+                df = pd.read_csv(path, encoding="utf-8")
             except Exception:
+                # 一部 CSV は BOM 付きなどのためリトライ
+                try:
+                    df = pd.read_csv(path, encoding="utf-8-sig")
+                except Exception:
+                    try:
+                        df = pd.read_csv(path, encoding="cp932")
+                    except Exception:
+                        df = None
+
+            if df is None or df.empty:
                 continue
 
-        if df is None or df.empty:
-            continue
+            # 部署っぽいカラムを推測
+            cols = [str(c) for c in df.columns]
+            dept_cols = [c for c in cols if any(k in c for k in ["部署", "部門", "所属", "部"]) ]
+            if not dept_cols:
+                # カラム名が読めない場合、全文検索的に行フィルタ
+                mask = df.apply(lambda row: row.astype(str).str.contains(dept_name, na=False).any(), axis=1)
+                sub = df.loc[mask]
+            else:
+                # いずれかの部署カラムが dept_name と一致する行を抽出
+                mask = False
+                for c in dept_cols:
+                    mask = mask | (df[c].astype(str) == dept_name)
+                sub = df.loc[mask]
 
-        # 部署っぽいカラムを推測
-        cols = [str(c) for c in df.columns]
-        dept_cols = [c for c in cols if any(k in c for k in ["部署", "部門", "所属", "部"]) ]
-        if not dept_cols:
-            # カラム名が読めない場合、全文検索的に行フィルタ
-            mask = df.apply(lambda row: row.astype(str).str.contains(dept_name, na=False).any(), axis=1)
-            sub = df.loc[mask]
+            if sub is None or sub.empty:
+                continue
+
+            # 4行以上出ることが条件。満たさない場合は次の CSV にトライ
+            if len(sub) < min_rows:
+                continue
+
+            st.markdown(f"### {dept_name} の従業員一覧")
+            st.dataframe(sub, use_container_width=True)
+            return True
         else:
-            # いずれかの部署カラムが dept_name と一致する行を抽出
-            mask = False
-            for c in dept_cols:
-                mask = mask | (df[c].astype(str) == dept_name)
-            sub = df.loc[mask]
+            # pandas なし: csv モジュールで読み込み
+            import csv
+            rows: List[dict] = []
+            read_ok = False
+            for enc in ("utf-8", "utf-8-sig", "cp932"):
+                try:
+                    with open(path, "r", encoding=enc, newline="") as f:
+                        reader = csv.DictReader(f)
+                        rows = [r for r in reader]
+                        read_ok = True
+                        break
+                except Exception:
+                    continue
+            if not read_ok or not rows:
+                continue
 
-        if sub is None or sub.empty:
-            continue
+            # 列名を収集
+            cols = list(rows[0].keys()) if rows else []
+            dept_cols = [c for c in cols if any(k in c for k in ["部署", "部門", "所属", "部"]) ]
 
-        # 4行以上出ることが条件。満たさない場合は次の CSV にトライ
-        if len(sub) < min_rows:
-            continue
+            def row_matches(r: dict) -> bool:
+                if dept_cols:
+                    for c in dept_cols:
+                        if str(r.get(c, "")) == dept_name:
+                            return True
+                    return False
+                # 部署カラムが特定できない場合は全列に対して包含検索
+                return any(dept_name in str(v) for v in r.values())
 
-        st.markdown(f"### {dept_name} の従業員一覧")
-        st.dataframe(sub, use_container_width=True)
-        return True
+            sub_rows = [r for r in rows if row_matches(r)]
+            if len(sub_rows) < min_rows:
+                continue
+
+            st.markdown(f"### {dept_name} の従業員一覧")
+            st.table(sub_rows)
+            return True
 
     return False
