@@ -65,12 +65,26 @@ def display_search_llm_response(resp):
 
 def display_contact_llm_response(resp):
     text, sources = _extract_answer_and_sources(resp)
-    # 問い合わせモードでも万一空文字ならフォールバック
-    if isinstance(text, str) and text.strip() == "":
-        st.warning(getattr(ct, "INQUIRY_NO_MATCH_ANSWER", "回答に必要な情報が見つかりませんでした。"))
+    user_prompt = _last_user_prompt()
+
+    # 返答が空、または「見つかりません」固定文言の場合のフォールバック
+    no_answer_msg = getattr(ct, "INQUIRY_NO_MATCH_ANSWER", "回答に必要な情報が見つかりませんでした。")
+    is_empty = isinstance(text, str) and text.strip() == ""
+    is_no_answer = isinstance(text, str) and text.strip() == no_answer_msg
+
+    if (is_empty or is_no_answer) and sources:
+        # 人事部の一覧要求に対しては roster CSV から一覧を生成して提示
+        if _looks_like_dept_listing_request(user_prompt, dept_name="人事部"):
+            rendered = _try_render_department_listing(sources, dept_name="人事部", min_rows=4)
+            if rendered:
+                _render_sources(sources)
+                return text
+        # 一覧生成に失敗した場合は従来の警告＋参照表示
+        st.warning(no_answer_msg)
         _render_sources(sources)
         return text
 
+    # 通常表示
     st.markdown(text)
     _render_sources(sources)
     return text
@@ -229,3 +243,85 @@ def _make_snippet(text: Optional[str], limit: int = 280) -> Optional[str]:
     if len(t) <= limit:
         return t
     return t[: limit - 1] + "…"
+
+
+def _last_user_prompt() -> str:
+    try:
+        msgs = st.session_state.get("messages", [])
+        for msg in reversed(msgs):
+            if msg.get("role") == "user":
+                return str(msg.get("content", ""))
+    except Exception:
+        pass
+    return ""
+
+
+def _looks_like_dept_listing_request(prompt: str, dept_name: str) -> bool:
+    if not isinstance(prompt, str) or not prompt:
+        return False
+    p = prompt
+    if dept_name not in p:
+        return False
+    # 「一覧」「リスト」「列挙」などの語と、社員/従業員などの語が含まれるかを簡易チェック
+    want_list = any(k in p for k in ["一覧", "リスト", "列挙", "まとめ", "一覧化"])
+    employee_word = any(k in p for k in ["従業員", "社員", "メンバー", "人物", "人員"])
+    return want_list and employee_word
+
+
+def _try_render_department_listing(sources: List[Dict[str, Any]], dept_name: str, min_rows: int = 4) -> bool:
+    # 参照リストから CSV を優先して探す
+    csv_paths: List[str] = []
+    for s in sources:
+        src = s.get("source")
+        if isinstance(src, str) and src.lower().endswith(".csv"):
+            csv_paths.append(src)
+    # 見つからない場合は失敗
+    if not csv_paths:
+        return False
+
+    # pandas は遅延 import（無い環境でも UI は壊さない）
+    try:
+        import pandas as pd  # type: ignore
+    except Exception:
+        st.info("CSV から一覧を生成するには pandas が必要です。requirements に pandas を追加してください。")
+        return False
+
+    for path in csv_paths:
+        try:
+            df = pd.read_csv(path, encoding="utf-8")
+        except Exception:
+            # 一部 CSV は BOM 付きなどのためリトライ
+            try:
+                df = pd.read_csv(path, encoding="utf-8-sig")
+            except Exception:
+                continue
+
+        if df is None or df.empty:
+            continue
+
+        # 部署っぽいカラムを推測
+        cols = [str(c) for c in df.columns]
+        dept_cols = [c for c in cols if any(k in c for k in ["部署", "部門", "所属", "部"]) ]
+        if not dept_cols:
+            # カラム名が読めない場合、全文検索的に行フィルタ
+            mask = df.apply(lambda row: row.astype(str).str.contains(dept_name, na=False).any(), axis=1)
+            sub = df.loc[mask]
+        else:
+            # いずれかの部署カラムが dept_name と一致する行を抽出
+            mask = False
+            for c in dept_cols:
+                mask = mask | (df[c].astype(str) == dept_name)
+            sub = df.loc[mask]
+
+        if sub is None or sub.empty:
+            continue
+
+        # 4行以上出ることが条件。満たさない場合は次の CSV にトライ
+        if len(sub) < min_rows:
+            continue
+
+        st.markdown(f"### {dept_name} の従業員一覧")
+        st.dataframe(sub, use_container_width=True)
+        return True
+
+    return False
