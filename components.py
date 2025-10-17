@@ -1,7 +1,11 @@
 """
-簡易版の components モジュール（main.py の参照を満たす最小機能を提供）
+簡易版の components モジュール（UI 表示）。
+・両モードで参照ドキュメントのありかとページ番号を表示
+・LLM 応答の形式に依存しないよう、多様なレスポンス形状をハンドリング
 """
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 import streamlit as st
+import constants as ct
 
 
 def display_app_title():
@@ -44,12 +48,130 @@ def display_conversation_log():
 
 
 def display_search_llm_response(resp):
-    text = getattr(resp, "text", str(resp))
-    st.write(text)
+    text, sources = _extract_answer_and_sources(resp)
+    st.markdown(text)
+    _render_sources(sources)
     return text
 
 
 def display_contact_llm_response(resp):
-    text = getattr(resp, "text", str(resp))
-    st.write(text)
+    text, sources = _extract_answer_and_sources(resp)
+    st.markdown(text)
+    _render_sources(sources)
     return text
+
+
+# =========================
+# internal helpers
+# =========================
+
+def _extract_answer_and_sources(resp: Any) -> Tuple[str, List[Dict[str, Any]]]:
+    """
+    レスポンスから回答テキストと参照ドキュメント情報を抽出する。
+
+    対応する代表的な形状:
+      - LangChainの返却オブジェクトに近い: resp.answer / resp.source_documents
+      - dict 形: {"answer"|"content"|"text", "source_documents"|"sources"|"context"}
+      - フォールバック: str(resp)
+    各ドキュメントの metadata から以下を優先的に読む:
+      source|file_path|path|url, page_number|page
+    """
+    # 回答テキスト
+    text: str = (
+        getattr(resp, "answer", None)
+        or getattr(resp, "content", None)
+        or getattr(resp, "text", None)
+        or (resp.get("answer") if isinstance(resp, dict) else None)
+        or (resp.get("content") if isinstance(resp, dict) else None)
+        or (resp.get("text") if isinstance(resp, dict) else None)
+        or str(resp)
+    )
+
+    # ソース候補の収集
+    raw_sources: List[Any] = []
+    # 属性から
+    if hasattr(resp, "source_documents"):
+        try:
+            raw = getattr(resp, "source_documents")
+            if isinstance(raw, Iterable):
+                raw_sources.extend(list(raw))
+        except Exception:
+            pass
+    # dict キーから
+    if isinstance(resp, dict):
+        for key in ("source_documents", "sources", "context", "documents"):
+            if key in resp and isinstance(resp[key], Iterable) and not isinstance(resp[key], (str, bytes)):
+                try:
+                    raw_sources.extend(list(resp[key]))
+                except Exception:
+                    pass
+
+    # Document/辞書から正規化
+    normalized: List[Dict[str, Any]] = []
+    for item in raw_sources:
+        src = None
+        page: Optional[int] = None
+        meta = None
+
+        # LangChain Document 風: .metadata
+        if hasattr(item, "metadata"):
+            try:
+                meta = getattr(item, "metadata")
+            except Exception:
+                meta = None
+        # dict 風
+        if meta is None and isinstance(item, dict):
+            meta = item.get("metadata", item)
+
+        if isinstance(meta, dict):
+            src = (
+                meta.get("source")
+                or meta.get("file_path")
+                or meta.get("path")
+                or meta.get("url")
+            )
+            page = meta.get("page_number", meta.get("page"))
+
+        # src が本文に直接含まれている場合（保険）
+        if src is None and isinstance(item, dict):
+            src = item.get("source") or item.get("url") or item.get("path")
+            page = item.get("page_number", item.get("page"))
+
+        if src:
+            normalized.append({"source": src, "page": page})
+
+    # 重複排除
+    dedup: List[Dict[str, Any]] = []
+    seen = set()
+    for s in normalized:
+        key = (s["source"], s.get("page"))
+        if key not in seen:
+            seen.add(key)
+            dedup.append(s)
+
+    # Top-Kで丸め（定数があれば）
+    try:
+        k = int(getattr(ct, "RETRIEVAL_TOP_K", len(dedup)))
+        dedup = dedup[:k]
+    except Exception:
+        pass
+
+    return text, dedup
+
+
+def _render_sources(sources: List[Dict[str, Any]]) -> None:
+    if not sources:
+        st.caption(":grey[参照ドキュメントはありません]")
+        return
+
+    st.markdown("---")
+    st.markdown("#### 参照ドキュメント")
+    for s in sources:
+        src = s.get("source")
+        page = s.get("page")
+        if not src:
+            continue
+        is_link = isinstance(src, str) and src.startswith(("http://", "https://"))
+        icon = ct.LINK_SOURCE_ICON if is_link else ct.DOC_SOURCE_ICON
+        page_text = f" p.{page}" if page is not None else ""
+        st.markdown(f"- {icon}{src}{page_text}")
