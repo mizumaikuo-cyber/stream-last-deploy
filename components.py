@@ -135,6 +135,7 @@ def _extract_answer_and_sources(resp: Any) -> Tuple[str, List[Dict[str, Any]]]:
         src = None
         page: Optional[int] = None
         meta = None
+        content: Optional[str] = None
 
         # LangChain Document 風: .metadata
         if hasattr(item, "metadata"):
@@ -160,8 +161,18 @@ def _extract_answer_and_sources(resp: Any) -> Tuple[str, List[Dict[str, Any]]]:
             src = item.get("source") or item.get("url") or item.get("path")
             page = item.get("page_number", item.get("page"))
 
+        # 抜粋用の本文テキスト
+        try:
+            if hasattr(item, "page_content"):
+                content = getattr(item, "page_content")
+            elif isinstance(item, dict):
+                content = item.get("page_content") or item.get("content") or item.get("text")
+        except Exception:
+            content = None
+
         if src:
-            normalized.append({"source": src, "page": page})
+            snippet = _make_snippet(content)
+            normalized.append({"source": src, "page": page, "snippet": snippet})
 
     # 重複排除
     dedup: List[Dict[str, Any]] = []
@@ -192,6 +203,7 @@ def _render_sources(sources: List[Dict[str, Any]]) -> None:
     for s in sources:
         src = s.get("source")
         page = s.get("page")
+        snippet = s.get("snippet")
         if not src:
             continue
         is_link = isinstance(src, str) and src.startswith(("http://", "https://"))
@@ -203,3 +215,17 @@ def _render_sources(sources: List[Dict[str, Any]]) -> None:
             display_page = page
         page_text = f" p.{display_page}" if display_page is not None else ""
         st.markdown(f"- {icon}{src}{page_text}")
+        if isinstance(snippet, str) and snippet.strip():
+            with st.expander("抜粋を表示", expanded=False):
+                st.markdown(
+                    "> " + snippet.replace("\n", " ").strip()
+                )
+
+
+def _make_snippet(text: Optional[str], limit: int = 280) -> Optional[str]:
+    if not text:
+        return None
+    t = str(text).strip()
+    if len(t) <= limit:
+        return t
+    return t[: limit - 1] + "…"
