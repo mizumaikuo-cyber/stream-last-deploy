@@ -16,7 +16,12 @@ def display_sidebar_info():
 def display_select_mode():
     if "mode" not in st.session_state:
         st.session_state.mode = "社内文書検索"
-    st.sidebar.selectbox("モード", ["社内文書検索", "社内問い合わせ"], key="mode")
+    st.sidebar.radio(
+        "モード",
+        ["社内文書検索", "社内問い合わせ"],
+        key="mode",
+        horizontal=False,
+    )
 
 
 def display_initial_ai_message():
