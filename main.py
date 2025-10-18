@@ -20,12 +20,12 @@ except Exception as e:
     st.error(utils.build_error_message(f"初期化処理に失敗しました: {e}"))
     st.stop()
 
-# Sidebar controls
-mode = cp.display_select_mode()
-st.session_state.mode = mode
+# Sidebar controls: create widget and read its value from session_state
+cp.display_select_mode()
+mode = st.session_state.get("mode", ct.ANSWER_MODE_1)
 
 # Conversation log
-cp.display_chat_log()
+cp.display_conversation_log()
 
 # Input and response
 chat_message = st.chat_input("質問を入力してください…")
