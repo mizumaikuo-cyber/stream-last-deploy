@@ -188,18 +188,13 @@ def _extract_answer_and_sources(resp: Any) -> Tuple[str, List[Dict[str, Any]]]:
                 or meta.get("path")
                 or meta.get("url")
             )
-            # Consider more possible page keys from various loaders
-            page = (
-                meta.get("page_number")
-                or meta.get("page")
-                or meta.get("page_index")
-                or meta.get("pageIndex")
-            )
+            page = _extract_page_from_meta(meta)
 
         # src が本文に直接含まれている場合（保険）
         if src is None and isinstance(item, dict):
             src = item.get("source") or item.get("url") or item.get("path")
-            page = item.get("page_number", item.get("page"))
+            if page is None:
+                page = _extract_page_from_meta(item)
 
         # 抜粋用の本文テキスト
         try:
@@ -231,6 +226,41 @@ def _extract_answer_and_sources(resp: Any) -> Tuple[str, List[Dict[str, Any]]]:
         pass
 
     return text, dedup
+
+
+def _extract_page_from_meta(meta: Dict[str, Any]) -> Optional[int]:
+    """Try several common locations/keys for page info and coerce to int if possible."""
+    def coerce(v: Any) -> Optional[int]:
+        if v is None:
+            return None
+        if isinstance(v, int):
+            return v
+        # Strings like "5" or "0005"
+        try:
+            s = str(v).strip()
+            if s.isdigit():
+                return int(s)
+        except Exception:
+            pass
+        return None
+
+    candidates: List[Any] = []
+    # direct keys
+    for k in ("page_number", "page", "page_index", "pageIndex", "page_label"):
+        if k in meta:
+            candidates.append(meta.get(k))
+    # nested 'loc'
+    loc = meta.get("loc")
+    if isinstance(loc, dict):
+        for k in ("page_number", "page", "page_index", "pageIndex", "page_label"):
+            if k in loc:
+                candidates.append(loc.get(k))
+    # pick first coercible
+    for v in candidates:
+        p = coerce(v)
+        if p is not None:
+            return p
+    return None
 
 
 def _render_sources(sources: List[Dict[str, Any]]) -> None:
