@@ -44,6 +44,17 @@ if chat_message:
     try:
         llm_resp = utils.get_llm_response(chat_message)
     except Exception as e:
+        # If quota error and the intent is department listing, try CSV direct fallback
+        err_msg = str(e)
+        if cp.detect_dept_listing(chat_message, dept_name="人事部") and (
+            "insufficient_quota" in err_msg or "You exceeded your current quota" in err_msg or "Error code: 429" in err_msg
+        ):
+            with st.chat_message("assistant"):
+                rendered = cp.render_department_listing_from_data_root("人事部", min_rows=4)
+                if not rendered:
+                    st.warning("部署一覧のCSV検索に失敗しました。")
+            st.stop()
+        # Otherwise, show normal error
         st.error(utils.build_error_message(f"エラーが発生しました: {e}"))
         st.stop()
 

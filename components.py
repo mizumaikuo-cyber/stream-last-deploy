@@ -110,6 +110,98 @@ def display_contact_llm_response(resp):
     return text
 
 
+def detect_dept_listing(prompt: str, dept_name: str = "人事部") -> bool:
+    """Public helper to detect department listing intent from user prompt."""
+    return _looks_like_dept_listing_request(prompt, dept_name=dept_name)
+
+
+def render_department_listing_from_data_root(dept_name: str, min_rows: int = 4) -> bool:
+    """Render department roster by scanning CSVs under data root, without LLM or retriever.
+
+    Returns True if rendered, False otherwise.
+    """
+    try:
+        data_root = getattr(ct, "RAG_TOP_FOLDER_PATH", "./data")
+        pattern = os.path.join(data_root, "**", "*.csv")
+        csvs = [p for p in glob.glob(pattern, recursive=True) if os.path.isfile(p)]
+        if not csvs:
+            return False
+        # Try pandas first
+        try:
+            import pandas as pd  # type: ignore
+        except Exception:
+            pd = None  # type: ignore
+
+        # Search each CSV for dept rows
+        for path in csvs:
+            if pd is not None:
+                df = None
+                for enc in ("utf-8", "utf-8-sig", "cp932"):
+                    try:
+                        df = pd.read_csv(path, encoding=enc)
+                        break
+                    except Exception:
+                        continue
+                if df is None or df.empty:
+                    continue
+                cols = [str(c) for c in df.columns]
+                dept_cols = [c for c in cols if any(k in c for k in ["部署", "部門", "所属", "部"])]
+                if dept_cols:
+                    mask = False
+                    for c in dept_cols:
+                        mask = mask | (df[c].astype(str) == dept_name)
+                    sub = df.loc[mask]
+                else:
+                    mask = df.apply(lambda row: row.astype(str).str.contains(dept_name, na=False).any(), axis=1)
+                    sub = df.loc[mask]
+                if sub is None or sub.empty or len(sub) < min_rows:
+                    continue
+                st.markdown(f"### {dept_name} の従業員一覧 (CSV 検索)")
+                st.dataframe(sub, use_container_width=True)
+                return True
+            else:
+                import csv
+                rows: List[dict] = []
+                read_ok = False
+                for enc in ("utf-8", "utf-8-sig", "cp932"):
+                    try:
+                        with open(path, "r", encoding=enc, newline="") as f:
+                            reader = csv.DictReader(f)
+                            rows = [r for r in reader]
+                            read_ok = True
+                            break
+                    except Exception:
+                        continue
+                if not read_ok or not rows:
+                    continue
+                cols = list(rows[0].keys()) if rows else []
+                dept_cols = [c for c in cols if any(k in c for k in ["部署", "部門", "所属", "部"])]
+                def row_matches(r: dict) -> bool:
+                    if dept_cols:
+                        for c in dept_cols:
+                            if str(r.get(c, "")) == dept_name:
+                                return True
+                        return False
+                    return any(dept_name in str(v) for v in r.values())
+                sub_rows = [r for r in rows if row_matches(r)]
+                if len(sub_rows) < min_rows:
+                    continue
+                st.markdown(f"### {dept_name} の従業員一覧 (CSV 検索)")
+                table_cols = list({k for r in sub_rows for k in r.keys()})
+                if table_cols:
+                    header = "| " + " | ".join(table_cols) + " |"
+                    sep = "|" + "|".join([" --- "] * len(table_cols)) + "|"
+                    st.markdown(header)
+                    st.markdown(sep)
+                    for r in sub_rows:
+                        row = [str(r.get(c, "")) for c in table_cols]
+                        st.markdown("| " + " | ".join(row) + " |")
+                return True
+    except Exception:
+        return False
+    return False
+
+
 # =========================
 # internal helpers
 # =========================
