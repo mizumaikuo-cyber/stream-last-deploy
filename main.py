@@ -30,8 +30,14 @@ cp.display_conversation_log()
 # Input and response
 chat_message = st.chat_input("質問を入力してください…")
 if chat_message:
+    # Ensure message log exists
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+
     with st.chat_message("user"):
         st.markdown(chat_message)
+    # Append to conversation log (for components' fallback detection)
+    st.session_state.messages.append({"role": "user", "content": chat_message})
 
     try:
         llm_resp = utils.get_llm_response(chat_message)
@@ -41,6 +47,11 @@ if chat_message:
 
     with st.chat_message("assistant"):
         if mode == ct.ANSWER_MODE_1:
-            cp.display_search_llm_response(llm_resp)
+            content = cp.display_search_llm_response(llm_resp)
         else:
-            cp.display_contact_llm_response(llm_resp)
+            content = cp.display_contact_llm_response(llm_resp)
+    # Append assistant message to log
+    try:
+        st.session_state.messages.append({"role": "assistant", "content": content})
+    except Exception:
+        pass
