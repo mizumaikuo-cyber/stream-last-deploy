@@ -94,6 +94,11 @@ def display_contact_llm_response(resp):
             if rendered:
                 _render_sources(sources)
                 return text
+        # 環境関連の一般フォールバック
+        if _looks_like_environment_request(user_prompt):
+            _render_environment_fallback()
+            _render_sources(sources)
+            return text
         # 一覧生成に失敗した場合は従来の警告＋参照表示
         st.warning(no_answer_msg)
         _render_sources(sources)
@@ -183,7 +188,13 @@ def _extract_answer_and_sources(resp: Any) -> Tuple[str, List[Dict[str, Any]]]:
                 or meta.get("path")
                 or meta.get("url")
             )
-            page = meta.get("page_number", meta.get("page"))
+            # Consider more possible page keys from various loaders
+            page = (
+                meta.get("page_number")
+                or meta.get("page")
+                or meta.get("page_index")
+                or meta.get("pageIndex")
+            )
 
         # src が本文に直接含まれている場合（保険）
         if src is None and isinstance(item, dict):
@@ -242,7 +253,10 @@ def _render_sources(sources: List[Dict[str, Any]]) -> None:
             display_page = 1
         else:
             display_page = page
-        page_text = f" p.{display_page}" if display_page is not None else ""
+        if display_page is None:
+            page_text = " (ページ情報なし)"
+        else:
+            page_text = f" p.{display_page}"
         st.markdown(f"- {icon}{src}{page_text}")
         if isinstance(snippet, str) and snippet.strip():
             with st.expander("抜粋を表示", expanded=False):
@@ -281,6 +295,40 @@ def _looks_like_dept_listing_request(prompt: str, dept_name: str) -> bool:
     want_list = any(k in p for k in ["一覧", "リスト", "列挙", "まとめ", "一覧化"])
     employee_word = any(k in p for k in ["従業員", "社員", "メンバー", "人物", "人員"])
     return want_list and employee_word
+
+
+def _looks_like_environment_request(prompt: str) -> bool:
+    if not isinstance(prompt, str) or not prompt:
+        return False
+    keywords = [
+        "環境への取り組み",
+        "環境",
+        "サステナビリティ",
+        "ESG",
+        "脱炭素",
+        "カーボンニュートラル",
+        "環境方針",
+        "ISO14001",
+    ]
+    p = prompt
+    return any(k in p for k in keywords)
+
+
+def _render_environment_fallback() -> None:
+    st.warning("社内の一次資料が見つからなかったため、一般的な観点での回答を提示します。")
+    st.markdown(
+        """
+        #### 環境への取り組みの一般的な観点
+        - 方針・ガバナンス: 環境方針の策定・公開、責任体制（経営/管掌役員）の明確化
+        - 法令順守と目標設定: 法令順守体制、CO2排出・廃棄物・水資源などの削減目標とKPI
+        - 事業活動での削減: 省エネ・再エネ導入、物流最適化、紙使用削減、グリーン購入
+        - 認証・評価: ISO 14001 等の取得検討、第三者評価・監査の受審
+        - 開示・コミュニケーション: ウェブサイトやレポートでの開示、従業員・取引先への周知
+
+        もし社内の正式な「環境方針」「ESG/サステナビリティ関連資料」が存在する場合、
+        データフォルダに追加いただくと、以後は社内資料に基づく回答が可能になります。
+        """
+    )
 
 
 def _try_render_department_listing(sources: List[Dict[str, Any]], dept_name: str, min_rows: int = 4) -> bool:
