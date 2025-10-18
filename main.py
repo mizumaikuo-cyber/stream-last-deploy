@@ -20,6 +20,8 @@ except Exception as e:
     st.error(utils.build_error_message(f"初期化処理に失敗しました: {e}"))
     st.stop()
 
+# Sidebar info and controls
+cp.display_sidebar_info()
 # Sidebar controls: create widget and read its value from session_state
 cp.display_select_mode()
 mode = st.session_state.get("mode", ct.ANSWER_MODE_1)

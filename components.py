@@ -17,6 +17,19 @@ def display_app_title():
 def display_sidebar_info():
     with st.sidebar:
         st.markdown("### 利用目的\n- 社内文書の検索\n- 社内問い合わせ")
+        # Optional diagnostics
+        stats = st.session_state.get("ingest_stats")
+        if stats:
+            st.markdown("---")
+            st.markdown("#### 取り込み診断")
+            st.caption(
+                f"Docs: {stats.get('total_docs','?')} | PDFs: {stats.get('pdf_count','?')} | PDFs with text: {stats.get('pdf_nonempty_count','?')}"
+            )
+            empties = stats.get("pdf_empty_examples") or []
+            if empties:
+                st.caption("文字が取れなかったPDF (例):")
+                for e in empties:
+                    st.caption(f"- {e}")
 
 
 def display_select_mode():

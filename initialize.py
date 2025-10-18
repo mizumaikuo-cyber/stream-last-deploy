@@ -79,6 +79,21 @@ def _initialize_retriever() -> None:
     try:
         docs_all = _load_data_sources()
 
+        # Ingestion diagnostics: count PDFs and non-empty contents
+        try:
+            pdf_docs = [d for d in docs_all if str(d.metadata.get("source", "")).lower().endswith(".pdf")]
+            pdf_nonempty = [d for d in pdf_docs if isinstance(d.page_content, str) and d.page_content.strip()]
+            empty_examples = [str(d.metadata.get("source", "")) for d in pdf_docs if not (isinstance(d.page_content, str) and d.page_content.strip())][:5]
+            st.session_state["ingest_stats"] = {
+                "total_docs": len(docs_all),
+                "pdf_count": len(pdf_docs),
+                "pdf_nonempty_count": len(pdf_nonempty),
+                "pdf_empty_examples": empty_examples,
+            }
+        except Exception:
+            # Non-fatal
+            pass
+
         # Normalize text on Windows hosts (defensive)
         if sys.platform.startswith("win"):
             for doc in docs_all:
