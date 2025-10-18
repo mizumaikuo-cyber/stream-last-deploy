@@ -76,27 +76,41 @@ def _initialize_retriever() -> None:
     if "retriever" in st.session_state:
         return
 
-    docs_all = _load_data_sources()
+    try:
+        docs_all = _load_data_sources()
 
-    # Normalize text on Windows hosts (defensive)
-    if sys.platform.startswith("win"):
-        for doc in docs_all:
-            doc.page_content = _adjust_string(doc.page_content)
-            for key in list(doc.metadata.keys()):
-                doc.metadata[key] = _adjust_string(doc.metadata[key])
+        # Normalize text on Windows hosts (defensive)
+        if sys.platform.startswith("win"):
+            for doc in docs_all:
+                doc.page_content = _adjust_string(doc.page_content)
+                for key in list(doc.metadata.keys()):
+                    doc.metadata[key] = _adjust_string(doc.metadata[key])
 
-    embeddings = OpenAIEmbeddings()
-    splitter = CharacterTextSplitter(
-        chunk_size=int(getattr(ct, "CHUNK_SIZE", 500)),
-        chunk_overlap=int(getattr(ct, "CHUNK_OVERLAP", 50)),
-        separator="\n",
-    )
-    splitted_docs = splitter.split_documents(docs_all)
+        # If API key missing, avoid initializing embeddings and run without retriever
+        if not os.getenv("OPENAI_API_KEY"):
+            logging.getLogger(ct.LOGGER_NAME).warning(
+                "OPENAI_API_KEY not found. Starting without retriever (LLM-only mode)."
+            )
+            st.session_state.retriever = None
+            return
 
-    db = Chroma.from_documents(splitted_docs, embedding=embeddings)
-    st.session_state.retriever = db.as_retriever(
-        search_kwargs={"k": int(getattr(ct, "RETRIEVAL_TOP_K", 5))}
-    )
+        embeddings = OpenAIEmbeddings()
+        splitter = CharacterTextSplitter(
+            chunk_size=int(getattr(ct, "CHUNK_SIZE", 500)),
+            chunk_overlap=int(getattr(ct, "CHUNK_OVERLAP", 50)),
+            separator="\n",
+        )
+        splitted_docs = splitter.split_documents(docs_all)
+
+        db = Chroma.from_documents(splitted_docs, embedding=embeddings)
+        st.session_state.retriever = db.as_retriever(
+            search_kwargs={"k": int(getattr(ct, "RETRIEVAL_TOP_K", 5))}
+        )
+    except Exception as e:
+        logging.getLogger(ct.LOGGER_NAME).warning(
+            f"Retriever initialization failed; falling back to LLM-only mode. error={e}"
+        )
+        st.session_state.retriever = None
 
 
 def _load_data_sources():

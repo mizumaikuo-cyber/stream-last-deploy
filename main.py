@@ -1,4 +1,50 @@
 """
+Streamlit app entrypoint. Clean, ASCII-safe wiring.
+"""
+
+import streamlit as st
+
+import components as cp
+import initialize as init
+import utils
+import constants as ct
+
+
+st.set_page_config(page_title=ct.APP_NAME, page_icon="🔎")
+st.title(ct.APP_NAME)
+
+# Initialize session, retriever, logger
+try:
+    init.initialize()
+except Exception as e:
+    st.error(utils.build_error_message(f"初期化処理に失敗しました: {e}"))
+    st.stop()
+
+# Sidebar controls
+mode = cp.display_select_mode()
+st.session_state.mode = mode
+
+# Conversation log
+cp.display_chat_log()
+
+# Input and response
+chat_message = st.chat_input("質問を入力してください…")
+if chat_message:
+    with st.chat_message("user"):
+        st.markdown(chat_message)
+
+    try:
+        llm_resp = utils.get_llm_response(chat_message)
+    except Exception as e:
+        st.error(utils.build_error_message(f"エラーが発生しました: {e}"))
+        st.stop()
+
+    with st.chat_message("assistant"):
+        if mode == ct.ANSWER_MODE_1:
+            cp.display_search_llm_response(llm_resp)
+        else:
+            cp.display_contact_llm_response(llm_resp)
+"""
 このファイルは、Webアプリのメイン処理が記述されたファイルです。
 """
 
