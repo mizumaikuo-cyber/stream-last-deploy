@@ -369,7 +369,16 @@ def _try_render_department_listing(sources: List[Dict[str, Any]], dept_name: str
                 continue
 
             st.markdown(f"### {dept_name} の従業員一覧")
-            st.table(sub_rows)
+            # Markdown テーブルで描画（pandas 依存を避ける）
+            cols = list({k for r in sub_rows for k in r.keys()})
+            if cols:
+                header = "| " + " | ".join(cols) + " |"
+                sep = "|" + "|".join([" --- "] * len(cols)) + "|"
+                st.markdown(header)
+                st.markdown(sep)
+                for r in sub_rows:
+                    row = [str(r.get(c, "")) for c in cols]
+                    st.markdown("| " + " | ".join(row) + " |")
             return True
 
     return False
