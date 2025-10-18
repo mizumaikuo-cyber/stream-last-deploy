@@ -96,7 +96,7 @@ def display_contact_llm_response(resp):
                 return text
         # 環境関連の一般フォールバック
         if _looks_like_environment_request(user_prompt):
-            _render_environment_fallback()
+            _render_environment_fallback(has_sources=bool(sources))
             _render_sources(sources)
             return text
         # 一覧生成に失敗した場合は従来の警告＋参照表示
@@ -314,8 +314,11 @@ def _looks_like_environment_request(prompt: str) -> bool:
     return any(k in p for k in keywords)
 
 
-def _render_environment_fallback() -> None:
-    st.warning("社内の一次資料が見つからなかったため、一般的な観点での回答を提示します。")
+def _render_environment_fallback(has_sources: bool = False) -> None:
+    if has_sources:
+        st.info("参照資料は見つかりましたが、質問に対して十分な根拠が抽出できなかったため、一般的な観点を補足します。")
+    else:
+        st.warning("社内の一次資料が見つからなかったため、一般的な観点での回答を提示します。")
     st.markdown(
         """
         #### 環境への取り組みの一般的な観点
