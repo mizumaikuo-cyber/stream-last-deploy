@@ -4,6 +4,8 @@
 ・LLM 応答の形式に依存しないよう、多様なレスポンス形状をハンドリング
 """
 from typing import Any, Dict, Iterable, List, Optional, Tuple
+import os
+import glob
 import streamlit as st
 import constants as ct
 
@@ -274,7 +276,12 @@ def _try_render_department_listing(sources: List[Dict[str, Any]], dept_name: str
     for s in sources:
         src = s.get("source")
         if isinstance(src, str) and src.lower().endswith(".csv"):
-            csv_paths.append(src)
+            # デプロイ環境では絶対パスが無効な場合があるため、ローカル data 配下を探索
+            resolved = _resolve_local_data_path(src)
+            if resolved:
+                csv_paths.append(resolved)
+            else:
+                csv_paths.append(src)
     # 見つからない場合は失敗
     if not csv_paths:
         return False
@@ -366,3 +373,21 @@ def _try_render_department_listing(sources: List[Dict[str, Any]], dept_name: str
             return True
 
     return False
+
+
+def _resolve_local_data_path(path: str) -> Optional[str]:
+    try:
+        # 既に存在する
+        if os.path.exists(path):
+            return path
+        # ファイル名で data/ 以下を探索
+        base = os.path.basename(path)
+        data_root = getattr(ct, "RAG_TOP_FOLDER_PATH", "./data")
+        pattern = os.path.join(data_root, "**", base)
+        matches = glob.glob(pattern, recursive=True)
+        for m in matches:
+            if os.path.isfile(m):
+                return m
+    except Exception:
+        return None
+    return None
