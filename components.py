@@ -116,6 +116,12 @@ def display_contact_llm_response(resp):
             _render_environment_fallback(has_sources=bool(sources))
             _render_sources(sources)
             return "一般的な観点による補足情報を提示しました。"
+        # 内容抽出フォールバック（例：株主優待など）
+        extracted = _try_render_answer_from_sources(user_prompt, sources)
+        if extracted:
+            st.markdown(extracted)
+            _render_sources(sources)
+            return extracted
         # 一覧生成に失敗した場合は従来の警告＋参照表示
         st.warning(no_answer_msg)
         _render_sources(sources)
@@ -125,6 +131,66 @@ def display_contact_llm_response(resp):
     st.markdown(text)
     _render_sources(sources)
     return text
+
+
+def _try_render_answer_from_sources(prompt: str, sources: List[Dict[str, Any]], max_chars: int = 600) -> Optional[str]:
+    """Synthesize a short answer from available source snippets without LLM.
+
+    - Prioritize snippets containing keywords from the prompt
+    - If none match, fall back to first few snippets
+    """
+    if not sources:
+        return None
+    # Build keyword list (simple heuristics)
+    kws: List[str] = []
+    p = (prompt or "").strip()
+    if not p:
+        return None
+    # Common business keywords
+    for k in ["株主優待", "優待", "内容", "特典", "条件", "対象", "有効期限", "金額", "割引", "ポイント"]:
+        if k in p and k not in kws:
+            kws.append(k)
+    # Company-ish tokens (Katakana/Latin)
+    m = re.findall(r"[A-Za-z0-9一-龥ァ-ヶー]+", p)
+    for token in m:
+        if len(token) >= 2 and token not in kws:
+            kws.append(token)
+
+    def score(snippet: str) -> int:
+        s = snippet.lower()
+        sc = 0
+        for k in kws:
+            if k.lower() in s:
+                sc += 1
+        return sc
+
+    # Collect snippets
+    cand: List[str] = []
+    for s in sources:
+        sn = s.get("snippet")
+        if isinstance(sn, str) and sn.strip():
+            cand.append(sn.strip())
+    if not cand:
+        return None
+
+    # Rank by keyword matches
+    ranked = sorted(cand, key=score, reverse=True)
+    answer_parts: List[str] = []
+    total = 0
+    for sn in ranked:
+        if sn in answer_parts:
+            continue
+        answer_parts.append(sn)
+        total += len(sn)
+        if total >= max_chars:
+            break
+    if not answer_parts:
+        return None
+
+    answer = "\n\n".join(answer_parts)
+    # Preface headline
+    head = "#### 推定回答\n"
+    return head + answer
 
 
 def detect_dept_listing(prompt: str, dept_name: str = "人事部") -> bool:
