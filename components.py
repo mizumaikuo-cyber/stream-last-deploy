@@ -7,6 +7,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 import re
 import os
 import glob
+import unicodedata
 import streamlit as st
 import constants as ct
 from langchain_community.document_loaders import PyMuPDFLoader, Docx2txtLoader, TextLoader
@@ -186,9 +187,15 @@ def _try_render_answer_from_sources(prompt: str, sources: List[Dict[str, Any]], 
     kws: List[str] = []
     if not p:
         return None
-    # Common business keywords
+    # Common business keywords (normalized contains)
+    def _norm(s: str) -> str:
+        try:
+            return unicodedata.normalize("NFKC", s).lower()
+        except Exception:
+            return str(s).lower()
+    pn = _norm(p)
     for k in ["株主優待", "優待", "内容", "特典", "条件", "対象", "有効期限", "金額", "割引", "ポイント"]:
-        if k in p and k not in kws:
+        if _norm(k) in pn and k not in kws:
             kws.append(k)
     # Company-ish tokens (Katakana/Latin)
     m = re.findall(r"[A-Za-z0-9一-龥ァ-ヶー]+", p)
@@ -197,10 +204,10 @@ def _try_render_answer_from_sources(prompt: str, sources: List[Dict[str, Any]], 
             kws.append(token)
 
     def score(snippet: str) -> int:
-        s = snippet.lower()
+        s = _norm(snippet)
         sc = 0
         for k in kws:
-            if k.lower() in s:
+            if _norm(k) in s:
                 sc += 1
         return sc
 
@@ -719,7 +726,13 @@ def _looks_unrelated_to_corp_docs(prompt: str, sources: List[Dict[str, Any]]) ->
     """
     if not isinstance(prompt, str) or not prompt.strip():
         return False
+    def _norm(s: str) -> str:
+        try:
+            return unicodedata.normalize("NFKC", s).lower()
+        except Exception:
+            return str(s).lower()
     p = prompt.strip()
+    pn = _norm(p)
     off_topic = [
         # 天気/ニュース系
         "天気", "今日の天気", "明日の天気", "気温", "降水確率", "台風", "地震", "交通情報", "最新ニュース",
@@ -730,7 +743,7 @@ def _looks_unrelated_to_corp_docs(prompt: str, sources: List[Dict[str, Any]]) ->
         # プライベート系/自己紹介系
         "好きな食べ物", "好きな色", "好きな映画", "好きな音楽", "好きなスポーツ", "趣味", "特技", "自己紹介", "年齢", "誕生日", "出身",
     ]
-    if any(k in p for k in off_topic):
+    if any(_norm(k) in pn for k in off_topic):
         return True
     # より一般的な雑談パターン（「好き」「嫌い」+対象）
     if re.search(r"好きな.+(食べ物|色|映画|音楽|スポーツ)", p):
@@ -741,12 +754,13 @@ def _looks_unrelated_to_corp_docs(prompt: str, sources: List[Dict[str, Any]]) ->
     snippets = [s.get("snippet") for s in (sources or []) if isinstance(s.get("snippet"), str)]
     if not snippets:
         return False
-    # tokenize prompt (simple)
-    tokens = set(re.findall(r"[A-Za-z0-9一-龥ァ-ヶー]+", p))
+    # tokenize prompt (simple, normalized/case-insensitive)
+    tokens = {t for t in re.findall(r"[A-Za-z0-9一-龥ァ-ヶー]+", pn) if len(t) >= 2}
     if not tokens:
         return False
     def overlap(sn: str) -> int:
-        stoks = set(re.findall(r"[A-Za-z0-9一-龥ァ-ヶー]+", sn))
+        sn_norm = _norm(sn)
+        stoks = {t for t in re.findall(r"[A-Za-z0-9一-龥ァ-ヶー]+", sn_norm) if len(t) >= 2}
         return len(tokens & stoks)
     overlaps = [overlap(sn) for sn in snippets]
     # If all overlaps are zero, and we had some sources, it's likely unrelated
