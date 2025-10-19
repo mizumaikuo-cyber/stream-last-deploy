@@ -70,7 +70,8 @@ def display_search_llm_response(resp):
     # Unrelated input guard: if prompt clearly unrelated, force fixed message
     user_prompt = _last_user_prompt()
     if _looks_unrelated_to_corp_docs(user_prompt, sources):
-        msg = getattr(ct, "NO_DOC_MATCH_ANSWER", "該当資料なし")
+        # 要件: 検索モードでは固定でこの文言を返す
+        msg = "入力内容と関連する社内文書が見つかりませんでした"
         st.warning(msg)
         return msg
     # Normalize quoted-empty like "" or '' to empty
@@ -720,11 +721,21 @@ def _looks_unrelated_to_corp_docs(prompt: str, sources: List[Dict[str, Any]]) ->
         return False
     p = prompt.strip()
     off_topic = [
-        "天気", "今日の天気", "明日の天気", "気温", "降水確率", "台風", "地震",
-        "野球", "サッカー", "テニス", "W杯", "ワールドカップ", "オリンピック",
-        "宝くじ", "占い", "星座", "最新ニュース", "交通情報",
+        # 天気/ニュース系
+        "天気", "今日の天気", "明日の天気", "気温", "降水確率", "台風", "地震", "交通情報", "最新ニュース",
+        # スポーツ/娯楽
+        "野球", "サッカー", "テニス", "W杯", "ワールドカップ", "オリンピック", "宝くじ",
+        # 占い/雑談
+        "占い", "星座", "なぞなぞ", "ジョーク", "冗談",
+        # プライベート系/自己紹介系
+        "好きな食べ物", "好きな色", "好きな映画", "好きな音楽", "好きなスポーツ", "趣味", "特技", "自己紹介", "年齢", "誕生日", "出身",
     ]
     if any(k in p for k in off_topic):
+        return True
+    # より一般的な雑談パターン（「好き」「嫌い」+対象）
+    if re.search(r"好きな.+(食べ物|色|映画|音楽|スポーツ)", p):
+        return True
+    if re.search(r"(あなた|君|お前).*(好き|嫌い|何歳|年齢|誕生日|出身|自己紹介)", p):
         return True
     # If we have snippets, compute a simple overlap score; if all near zero, consider unrelated
     snippets = [s.get("snippet") for s in (sources or []) if isinstance(s.get("snippet"), str)]
