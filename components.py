@@ -70,10 +70,17 @@ def display_search_llm_response(resp):
     # Normalize quoted-empty like "" or '' to empty
     if isinstance(text, str) and text.strip() in ('""', "''"):
         text = ""
+    # If LLM returned "no match" but we do have sources, prefer showing sources with a clearer message
+    no_doc_msg = getattr(ct, "NO_DOC_MATCH_ANSWER", "該当資料なし")
+    if isinstance(text, str) and text.strip() == no_doc_msg and sources:
+        msg = "関連する社内文書が見つかりました。以下に表示します。"
+        st.info(msg)
+        _render_sources(sources)
+        return msg
     # 検索モードでは、関連ありの場合に空文字を返すフローがあるため、空文字時のUXを補強
     if isinstance(text, str) and text.strip() == "":
         if sources:
-            msg = "関連する社内文書が見つかりました。下記の参照ドキュメントをご確認ください。"
+            msg = "関連する社内文書が見つかりました。以下に表示します。"
             st.info(msg)
             _render_sources(sources)
             return msg
