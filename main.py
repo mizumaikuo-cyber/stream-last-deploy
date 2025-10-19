@@ -46,11 +46,14 @@ if chat_message:
     except Exception as e:
         # If quota error and the intent is department listing, try CSV direct fallback
         err_msg = str(e)
-        if cp.detect_dept_listing(chat_message, dept_name="人事部") and (
+        # Dept listing offline fallback
+        if cp.detect_dept_listing(chat_message, dept_name=None) and (
             "insufficient_quota" in err_msg or "You exceeded your current quota" in err_msg or "Error code: 429" in err_msg
         ):
             with st.chat_message("assistant"):
-                rendered = cp.render_department_listing_from_data_root("人事部", min_rows=4)
+                # infer department name
+                dept = cp.get_department_from_prompt(chat_message) or "人事部"
+                rendered = cp.render_department_listing_from_data_root(dept, min_rows=4)
                 if not rendered:
                     st.warning("部署一覧のCSV検索に失敗しました。")
             st.stop()

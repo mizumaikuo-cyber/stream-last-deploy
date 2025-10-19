@@ -4,6 +4,7 @@
 ・LLM 応答の形式に依存しないよう、多様なレスポンス形状をハンドリング
 """
 from typing import Any, Dict, Iterable, List, Optional, Tuple
+import re
 import os
 import glob
 import streamlit as st
@@ -96,12 +97,13 @@ def display_contact_llm_response(resp):
     is_no_answer = isinstance(text, str) and text.strip() == no_answer_msg
 
     if (is_empty or is_no_answer) and sources:
-        # 人事部の一覧要求に対しては roster CSV から一覧を生成して提示
-        if _looks_like_dept_listing_request(user_prompt, dept_name="人事部"):
-            rendered = _try_render_department_listing(sources, dept_name="人事部", min_rows=4)
+        # 部署一覧要求に対しては roster CSV から一覧を生成して提示（部署名は自動抽出）
+        dept = get_department_from_prompt(user_prompt)
+        if dept:
+            rendered = _try_render_department_listing(sources, dept_name=dept, min_rows=4)
             if rendered:
                 _render_sources(sources)
-                return f"{user_prompt} に対して、従業員一覧を表示しました。"
+                return f"{dept} の従業員一覧を表示しました。"
         # 環境関連の一般フォールバック
         if _looks_like_environment_request(user_prompt):
             _render_environment_fallback(has_sources=bool(sources))
@@ -119,8 +121,37 @@ def display_contact_llm_response(resp):
 
 
 def detect_dept_listing(prompt: str, dept_name: str = "人事部") -> bool:
-    """Public helper to detect department listing intent from user prompt."""
-    return _looks_like_dept_listing_request(prompt, dept_name=dept_name)
+    """Backward-compatible helper: True if the prompt requests a department listing.
+
+    If dept_name is provided, also checks that specific name; otherwise any department-like token.
+    """
+    if dept_name:
+        return _looks_like_dept_listing_request(prompt, dept_name=dept_name)
+    return get_department_from_prompt(prompt) is not None
+
+
+def get_department_from_prompt(prompt: str) -> Optional[str]:
+    """Extract department-like name from a prompt (e.g., 営業部, マーケティング部, 人事部, 開発部, 事業部, 本部, 課, 室).
+
+    Returns the detected department name or None.
+    """
+    if not isinstance(prompt, str) or not prompt:
+        return None
+    p = prompt.strip()
+    # Known department candidates (including some common variants)
+    known = [
+        "人事部", "総務部", "経理部", "財務部", "営業部", "マーケティング部", "広報部", "法務部",
+        "開発部", "技術部", "情報システム部", "IT部", "品質保証部", "製造部", "購買部", "企画部",
+        "サポート部", "カスタマーサポート部", "CS部", "事業部", "本部"
+    ]
+    for k in known:
+        if k in p:
+            return k
+    # Generic pattern: <word>(本部|事業部|部|課|室)
+    m = re.search(r"([\w一-龥ぁ-んァ-ヶｦ-ﾟー・]+)(本部|事業部|部|課|室)", p)
+    if m:
+        return m.group(1) + m.group(2)
+    return None
 
 
 def render_department_listing_from_data_root(dept_name: str, min_rows: int = 4) -> bool:
@@ -159,6 +190,12 @@ def render_department_listing_from_data_root(dept_name: str, min_rows: int = 4) 
                     for c in dept_cols:
                         mask = mask | (df[c].astype(str) == dept_name)
                     sub = df.loc[mask]
+                    # If too few rows, fallback to contains
+                    if sub is None or len(sub) < min_rows:
+                        mask2 = False
+                        for c in dept_cols:
+                            mask2 = mask2 | (df[c].astype(str).str.contains(dept_name, na=False))
+                        sub = df.loc[mask2]
                 else:
                     mask = df.apply(lambda row: row.astype(str).str.contains(dept_name, na=False).any(), axis=1)
                     sub = df.loc[mask]
@@ -186,8 +223,15 @@ def render_department_listing_from_data_root(dept_name: str, min_rows: int = 4) 
                 dept_cols = [c for c in cols if any(k in c for k in ["部署", "部門", "所属", "部"])]
                 def row_matches(r: dict) -> bool:
                     if dept_cols:
+                        # equality first
                         for c in dept_cols:
-                            if str(r.get(c, "")) == dept_name:
+                            v = str(r.get(c, ""))
+                            if v == dept_name:
+                                return True
+                        # then contains
+                        for c in dept_cols:
+                            v = str(r.get(c, ""))
+                            if dept_name in v:
                                 return True
                         return False
                     return any(dept_name in str(v) for v in r.values())
