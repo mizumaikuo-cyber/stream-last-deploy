@@ -72,6 +72,8 @@ if chat_message:
             content = cp.display_contact_llm_response(llm_resp)
     # Append assistant message to log
     try:
-        st.session_state.messages.append({"role": "assistant", "content": content})
+        # Fallback to a short placeholder when content is empty
+        safe_content = content if isinstance(content, str) and content.strip() else "参照ドキュメントを表示しました。"
+        st.session_state.messages.append({"role": "assistant", "content": safe_content})
     except Exception:
         pass

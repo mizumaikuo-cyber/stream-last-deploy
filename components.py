@@ -66,14 +66,20 @@ def display_conversation_log():
 
 def display_search_llm_response(resp):
     text, sources = _extract_answer_and_sources(resp)
+    # Normalize quoted-empty like "" or '' to empty
+    if isinstance(text, str) and text.strip() in ('""', "''"):
+        text = ""
     # 検索モードでは、関連ありの場合に空文字を返すフローがあるため、空文字時のUXを補強
     if isinstance(text, str) and text.strip() == "":
         if sources:
-            st.info("関連する社内文書が見つかりました。下記の参照ドキュメントをご確認ください。")
+            msg = "関連する社内文書が見つかりました。下記の参照ドキュメントをご確認ください。"
+            st.info(msg)
             _render_sources(sources)
+            return msg
         else:
-            st.warning(getattr(ct, "NO_DOC_MATCH_ANSWER", "該当資料なし"))
-        return text
+            msg = getattr(ct, "NO_DOC_MATCH_ANSWER", "該当資料なし")
+            st.warning(msg)
+            return msg
 
     st.markdown(text)
     _render_sources(sources)
@@ -95,16 +101,16 @@ def display_contact_llm_response(resp):
             rendered = _try_render_department_listing(sources, dept_name="人事部", min_rows=4)
             if rendered:
                 _render_sources(sources)
-                return text
+                return f"{user_prompt} に対して、従業員一覧を表示しました。"
         # 環境関連の一般フォールバック
         if _looks_like_environment_request(user_prompt):
             _render_environment_fallback(has_sources=bool(sources))
             _render_sources(sources)
-            return text
+            return "一般的な観点による補足情報を提示しました。"
         # 一覧生成に失敗した場合は従来の警告＋参照表示
         st.warning(no_answer_msg)
         _render_sources(sources)
-        return text
+        return no_answer_msg
 
     # 通常表示
     st.markdown(text)
