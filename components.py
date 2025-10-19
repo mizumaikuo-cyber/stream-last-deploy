@@ -103,13 +103,19 @@ def display_contact_llm_response(resp):
     is_empty = isinstance(text, str) and text.strip() == ""
     is_no_answer = isinstance(text, str) and text.strip() == no_answer_msg
 
-    if (is_empty or is_no_answer) and sources:
+    # フォールバックは参照の有無に関わらず実施（CSV は参照に出ないことがあるため）
+    if (is_empty or is_no_answer):
         # 部署一覧要求に対しては roster CSV から一覧を生成して提示（部署名は自動抽出）
         dept = get_department_from_prompt(user_prompt)
         if dept:
+            # まず参照に出ているCSVから探す
             rendered = _try_render_department_listing(sources, dept_name=dept, min_rows=4)
+            # 参照にCSVが含まれない場合は data/ 配下を直接走査
+            if not rendered:
+                rendered = render_department_listing_from_data_root(dept_name=dept, min_rows=4)
             if rendered:
-                _render_sources(sources)
+                if sources:
+                    _render_sources(sources)
                 return f"{dept} の従業員一覧を表示しました。"
         # 環境関連の一般フォールバック
         if _looks_like_environment_request(user_prompt):
@@ -120,11 +126,13 @@ def display_contact_llm_response(resp):
         extracted = _try_render_answer_from_sources(user_prompt, sources)
         if extracted:
             st.markdown(extracted)
-            _render_sources(sources)
+            if sources:
+                _render_sources(sources)
             return extracted
         # 一覧生成に失敗した場合は従来の警告＋参照表示
         st.warning(no_answer_msg)
-        _render_sources(sources)
+        if sources:
+            _render_sources(sources)
         return no_answer_msg
 
     # 通常表示
@@ -763,6 +771,12 @@ def _try_render_department_listing(sources: List[Dict[str, Any]], dept_name: str
                 for c in dept_cols:
                     mask = mask | (df[c].astype(str) == dept_name)
                 sub = df.loc[mask]
+                # 一致で足りなければ包含検索にフォールバック
+                if sub is None or len(sub) < min_rows:
+                    mask2 = False
+                    for c in dept_cols:
+                        mask2 = mask2 | (df[c].astype(str).str.contains(dept_name, na=False))
+                    sub = df.loc[mask2]
 
             if sub is None or sub.empty:
                 continue
@@ -797,8 +811,13 @@ def _try_render_department_listing(sources: List[Dict[str, Any]], dept_name: str
 
             def row_matches(r: dict) -> bool:
                 if dept_cols:
+                    # equality first
                     for c in dept_cols:
                         if str(r.get(c, "")) == dept_name:
+                            return True
+                    # then contains
+                    for c in dept_cols:
+                        if dept_name in str(r.get(c, "")):
                             return True
                     return False
                 # 部署カラムが特定できない場合は全列に対して包含検索
