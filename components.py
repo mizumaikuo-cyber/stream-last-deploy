@@ -67,6 +67,12 @@ def display_conversation_log():
 
 def display_search_llm_response(resp):
     text, sources = _extract_answer_and_sources(resp)
+    # Unrelated input guard: if prompt clearly unrelated, force fixed message
+    user_prompt = _last_user_prompt()
+    if _looks_unrelated_to_corp_docs(user_prompt, sources):
+        msg = getattr(ct, "NO_DOC_MATCH_ANSWER", "該当資料なし")
+        st.warning(msg)
+        return msg
     # Normalize quoted-empty like "" or '' to empty
     if isinstance(text, str) and text.strip() in ('""', "''"):
         text = ""
@@ -97,6 +103,11 @@ def display_search_llm_response(resp):
 def display_contact_llm_response(resp):
     text, sources = _extract_answer_and_sources(resp)
     user_prompt = _last_user_prompt()
+    # Unrelated input guard: if prompt clearly unrelated, force fixed message
+    if _looks_unrelated_to_corp_docs(user_prompt, sources):
+        msg = getattr(ct, "INQUIRY_NO_MATCH_ANSWER", "回答に必要な情報が見つかりませんでした。")
+        st.warning(msg)
+        return msg
 
     # 返答が空、または「見つかりません」固定文言の場合のフォールバック
     no_answer_msg = getattr(ct, "INQUIRY_NO_MATCH_ANSWER", "回答に必要な情報が見つかりませんでした。")
@@ -696,6 +707,39 @@ def _looks_like_environment_request(prompt: str) -> bool:
     ]
     p = prompt
     return any(k in p for k in keywords)
+
+
+def _looks_unrelated_to_corp_docs(prompt: str, sources: List[Dict[str, Any]]) -> bool:
+    """Detect clearly off-topic inputs (e.g., weather, sports scores, lottery) to avoid misleading source display.
+
+    Heuristics:
+      - Contains any of generic off-topic keywords
+      - Very low overlap between prompt tokens and any source snippet (when snippets exist)
+    """
+    if not isinstance(prompt, str) or not prompt.strip():
+        return False
+    p = prompt.strip()
+    off_topic = [
+        "天気", "今日の天気", "明日の天気", "気温", "降水確率", "台風", "地震",
+        "野球", "サッカー", "テニス", "W杯", "ワールドカップ", "オリンピック",
+        "宝くじ", "占い", "星座", "最新ニュース", "交通情報",
+    ]
+    if any(k in p for k in off_topic):
+        return True
+    # If we have snippets, compute a simple overlap score; if all near zero, consider unrelated
+    snippets = [s.get("snippet") for s in (sources or []) if isinstance(s.get("snippet"), str)]
+    if not snippets:
+        return False
+    # tokenize prompt (simple)
+    tokens = set(re.findall(r"[A-Za-z0-9一-龥ァ-ヶー]+", p))
+    if not tokens:
+        return False
+    def overlap(sn: str) -> int:
+        stoks = set(re.findall(r"[A-Za-z0-9一-龥ァ-ヶー]+", sn))
+        return len(tokens & stoks)
+    overlaps = [overlap(sn) for sn in snippets]
+    # If all overlaps are zero, and we had some sources, it's likely unrelated
+    return all(o == 0 for o in overlaps)
 
 
 def _render_environment_fallback(has_sources: bool = False) -> None:
