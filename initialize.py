@@ -73,7 +73,8 @@ def _ensure_session_state() -> None:
 
 
 def _initialize_retriever() -> None:
-    if "retriever" in st.session_state:
+    # Only skip if a valid retriever already exists; allow rebuild when it's None
+    if st.session_state.get("retriever", None) is not None:
         return
 
     try:

@@ -8,6 +8,8 @@ import os
 import glob
 import streamlit as st
 import constants as ct
+from langchain_community.document_loaders import PyMuPDFLoader, Docx2txtLoader, TextLoader
+from langchain_community.document_loaders.csv_loader import CSVLoader
 
 
 def display_app_title():
@@ -200,6 +202,63 @@ def render_department_listing_from_data_root(dept_name: str, min_rows: int = 4) 
     except Exception:
         return False
     return False
+
+
+def render_keyword_search_fallback(query: str, max_hits: int = 5) -> bool:
+    """Naive keyword search without embeddings/LLM. Loads docs and filters by substring.
+
+    Returns True if any hits are displayed.
+    """
+    data_root = getattr(ct, "RAG_TOP_FOLDER_PATH", "./data")
+    exts_map = getattr(ct, "SUPPORTED_EXTENSIONS", {
+        ".pdf": PyMuPDFLoader,
+        ".docx": Docx2txtLoader,
+        ".txt": lambda p: TextLoader(p, encoding="utf-8"),
+        ".csv": lambda p: CSVLoader(p, encoding="utf-8"),
+    })
+    lower_q = str(query).strip().lower()
+    if not lower_q:
+        return False
+
+    def iter_files(root: str):
+        for dirpath, _, filenames in os.walk(root):
+            for fn in filenames:
+                yield os.path.join(dirpath, fn)
+
+    hits: List[Dict[str, Any]] = []
+    for path in iter_files(data_root):
+        ext = os.path.splitext(path)[1].lower()
+        if ext not in exts_map:
+            continue
+        try:
+            loader_ctor = exts_map[ext]
+            loader = loader_ctor(path)
+            docs = loader.load()
+        except Exception:
+            continue
+        for d in docs:
+            text = str(getattr(d, "page_content", ""))
+            if lower_q in text.lower():
+                meta = getattr(d, "metadata", {}) or {}
+                src = meta.get("source") or meta.get("file_path") or meta.get("path") or meta.get("url") or path
+                page = meta.get("page_number") or meta.get("page")
+                hits.append({
+                    "source": src,
+                    "page": page,
+                    "snippet": _make_snippet(text),
+                })
+                if len(hits) >= max_hits:
+                    break
+        if len(hits) >= max_hits:
+            break
+
+    if not hits:
+        st.warning("検索フォールバックで一致する資料は見つかりませんでした。")
+        return False
+
+    st.info("LLM利用上限のため、簡易検索の結果を表示します。")
+    _render_sources(hits)
+    return True
 
 
 # =========================

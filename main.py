@@ -54,6 +54,13 @@ if chat_message:
                 if not rendered:
                     st.warning("部署一覧のCSV検索に失敗しました。")
             st.stop()
+        # If quota error for general query, try naive keyword search fallback
+        if "insufficient_quota" in err_msg or "You exceeded your current quota" in err_msg or "Error code: 429" in err_msg:
+            with st.chat_message("assistant"):
+                rendered = cp.render_keyword_search_fallback(chat_message, max_hits=5)
+                if not rendered:
+                    st.error(utils.build_error_message(f"エラーが発生しました: {e}"))
+            st.stop()
         # Otherwise, show normal error
         st.error(utils.build_error_message(f"エラーが発生しました: {e}"))
         st.stop()
