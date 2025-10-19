@@ -141,6 +141,25 @@ def _try_render_answer_from_sources(prompt: str, sources: List[Dict[str, Any]], 
     """
     if not sources:
         return None
+    # If shareholder benefits query, try strict extraction first
+    if _looks_like_shareholder_benefit_request(p):
+        strict = ["株主優待", "優待", "特典", "条件", "対象", "基準日", "権利確定日", "保有株式数", "保有数", "割引", "ポイント", "進呈", "贈呈", "クーポン"]
+        # 1) Prefer snippets that contain strict keywords
+        strict_snippets: List[str] = []
+        for s in sources:
+            sn = s.get("snippet")
+            if isinstance(sn, str) and sn.strip():
+                if any(k in sn for k in strict):
+                    strict_snippets.append(sn.strip())
+        if strict_snippets:
+            answer = _assemble_answer(strict_snippets, max_chars)
+            if answer:
+                return "#### 推定回答\n" + answer
+        # 2) If no good snippets, re-load referenced documents and search lines
+        doc_lines = _extract_lines_from_source_documents(sources, strict, per_doc_limit=6, total_limit=10)
+        if doc_lines:
+            return "#### 推定回答\n" + "\n".join(f"- {ln}" for ln in doc_lines)
+
     # Build keyword list (simple heuristics)
     kws: List[str] = []
     p = (prompt or "").strip()
@@ -175,22 +194,74 @@ def _try_render_answer_from_sources(prompt: str, sources: List[Dict[str, Any]], 
 
     # Rank by keyword matches
     ranked = sorted(cand, key=score, reverse=True)
-    answer_parts: List[str] = []
+    answer = _assemble_answer(ranked, max_chars)
+    if not answer:
+        return None
+    return "#### 推定回答\n" + answer
+
+
+def _assemble_answer(snippets: List[str], max_chars: int) -> Optional[str]:
+    parts: List[str] = []
     total = 0
-    for sn in ranked:
-        if sn in answer_parts:
+    for sn in snippets:
+        if sn in parts:
             continue
-        answer_parts.append(sn)
+        parts.append(sn)
         total += len(sn)
         if total >= max_chars:
             break
-    if not answer_parts:
+    if not parts:
         return None
+    return "\n\n".join(parts)
 
-    answer = "\n\n".join(answer_parts)
-    # Preface headline
-    head = "#### 推定回答\n"
-    return head + answer
+
+def _looks_like_shareholder_benefit_request(prompt: str) -> bool:
+    if not prompt:
+        return False
+    keys = ["株主優待", "優待", "株主", "特典"]
+    return any(k in prompt for k in keys)
+
+
+def _extract_lines_from_source_documents(sources: List[Dict[str, Any]], keywords: List[str], per_doc_limit: int = 5, total_limit: int = 10) -> List[str]:
+    lines: List[str] = []
+    for s in sources:
+        if len(lines) >= total_limit:
+            break
+        path = s.get("source")
+        if not isinstance(path, str) or not path:
+            continue
+        resolved = _resolve_local_data_path(path) if "_resolve_local_data_path" in globals() else path
+        if not resolved or not os.path.exists(resolved):
+            continue
+        ext = os.path.splitext(resolved)[1].lower()
+        loader = None
+        try:
+            if ext == ".pdf":
+                loader = PyMuPDFLoader(resolved)
+            elif ext == ".docx":
+                loader = Docx2txtLoader(resolved)
+            elif ext == ".txt":
+                loader = TextLoader(resolved, encoding="utf-8")
+            else:
+                continue
+            docs = loader.load()
+        except Exception:
+            continue
+        # Scan lines for keywords
+        picked = 0
+        for d in docs:
+            text = str(getattr(d, "page_content", ""))
+            for ln in text.splitlines():
+                if any(k in ln for k in keywords):
+                    norm = ln.strip()
+                    if norm and norm not in lines:
+                        lines.append(norm)
+                        picked += 1
+                        if picked >= per_doc_limit or len(lines) >= total_limit:
+                            break
+            if picked >= per_doc_limit or len(lines) >= total_limit:
+                break
+    return lines
 
 
 def detect_dept_listing(prompt: str, dept_name: str = "人事部") -> bool:
