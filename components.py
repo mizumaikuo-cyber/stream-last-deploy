@@ -141,6 +141,8 @@ def _try_render_answer_from_sources(prompt: str, sources: List[Dict[str, Any]], 
     """
     if not sources:
         return None
+    # Normalize prompt early and reuse
+    p = (prompt or "").strip()
     # If shareholder benefits query, try strict extraction first
     if _looks_like_shareholder_benefit_request(p):
         strict = ["株主優待", "優待", "特典", "条件", "対象", "基準日", "権利確定日", "保有株式数", "保有数", "割引", "ポイント", "進呈", "贈呈", "クーポン"]
@@ -162,7 +164,6 @@ def _try_render_answer_from_sources(prompt: str, sources: List[Dict[str, Any]], 
 
     # Build keyword list (simple heuristics)
     kws: List[str] = []
-    p = (prompt or "").strip()
     if not p:
         return None
     # Common business keywords
