@@ -120,10 +120,6 @@ def display_contact_llm_response(resp):
     # フォールバックは参照の有無に関わらず実施（CSV は参照に出ないことがあるため）
     if (is_empty or is_no_answer):
         # 部署一覧要求に対しては roster CSV から一覧を生成して提示（部署名は自動抽出）
-        # オフトピックの場合は社内資料からの合成回答は行わず、固定メッセージで終了
-        if is_offtopic:
-            st.warning(no_answer_msg)
-            return no_answer_msg
         dept = get_department_from_prompt(user_prompt)
         if dept:
             # まず参照に出ているCSVから探す
@@ -140,6 +136,12 @@ def display_contact_llm_response(resp):
             _render_environment_fallback(has_sources=bool(sources))
             _render_sources(sources)
             return "一般的な観点による補足情報を提示しました。"
+        # オフトピックの場合は社内資料からの合成回答は行わず、固定メッセージで終了
+        if is_offtopic:
+            st.warning(no_answer_msg)
+            if sources:
+                _render_sources(sources)
+            return no_answer_msg
         # 内容抽出フォールバック（例：株主優待など）
         extracted = _try_render_answer_from_sources(user_prompt, sources)
         if extracted:
