@@ -105,6 +105,7 @@ def display_search_llm_response(resp):
 def display_contact_llm_response(resp):
     text, sources = _extract_answer_and_sources(resp)
     user_prompt = _last_user_prompt()
+    is_offtopic = _looks_unrelated_to_corp_docs(user_prompt, sources)
     # Unrelated input guard: if prompt clearly unrelated, force fixed message
     if not getattr(ct, "ALLOW_OFFTOPIC_LLM", True) and _looks_unrelated_to_corp_docs(user_prompt, sources):
         msg = getattr(ct, "INQUIRY_NO_MATCH_ANSWER", "回答に必要な情報が見つかりませんでした。")
@@ -119,6 +120,10 @@ def display_contact_llm_response(resp):
     # フォールバックは参照の有無に関わらず実施（CSV は参照に出ないことがあるため）
     if (is_empty or is_no_answer):
         # 部署一覧要求に対しては roster CSV から一覧を生成して提示（部署名は自動抽出）
+        # オフトピックの場合は社内資料からの合成回答は行わず、固定メッセージで終了
+        if is_offtopic:
+            st.warning(no_answer_msg)
+            return no_answer_msg
         dept = get_department_from_prompt(user_prompt)
         if dept:
             # まず参照に出ているCSVから探す
@@ -149,6 +154,13 @@ def display_contact_llm_response(resp):
         return no_answer_msg
 
     # 通常表示
+    # オフトピックの通常表示: 参照は表示しない。LLM がテキストを返していればそのまま表示、無ければ固定メッセージ。
+    if is_offtopic:
+        if isinstance(text, str) and text.strip() and text.strip() != no_answer_msg:
+            st.markdown(text)
+            return text
+        st.warning(no_answer_msg)
+        return no_answer_msg
     st.markdown(text)
     _render_sources(sources)
     return text
