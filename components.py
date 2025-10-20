@@ -128,8 +128,7 @@ def display_contact_llm_response(resp):
             if not rendered:
                 rendered = render_department_listing_from_data_root(dept_name=dept, min_rows=4)
             if rendered:
-                if sources:
-                    _render_sources(sources)
+                # 部署一覧はCSVからの直接検索結果のため、LLM由来の参照は表示しない（無関連な参照を避ける）
                 return f"{dept} の従業員一覧を表示しました。"
         # 環境関連の一般フォールバック
         if _looks_like_environment_request(user_prompt):
