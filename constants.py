@@ -38,6 +38,10 @@ RETRIEVAL_TOP_K = 5
 CHUNK_SIZE = 500
 CHUNK_OVERLAP = 50
 
+# If True, call LLM even when the input seems unrelated to corporate documents.
+# If False, show fixed messages without calling LLM for such inputs.
+ALLOW_OFFTOPIC_LLM = True
+
 SYSTEM_PROMPT_CREATE_INDEPENDENT_TEXT = "会話履歴と最新の入力をもとに、会話履歴なしでも理解できる独立した入力テキストを生成してください。"
 SYSTEM_PROMPT_DOC_SEARCH = """
     あなたは社内の文書検索アシスタントです。

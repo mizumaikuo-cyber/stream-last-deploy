@@ -70,7 +70,7 @@ def display_search_llm_response(resp):
     text, sources = _extract_answer_and_sources(resp)
     # Unrelated input guard: if prompt clearly unrelated, force fixed message
     user_prompt = _last_user_prompt()
-    if _looks_unrelated_to_corp_docs(user_prompt, sources):
+    if not getattr(ct, "ALLOW_OFFTOPIC_LLM", True) and _looks_unrelated_to_corp_docs(user_prompt, sources):
         # 要件: 検索モードでは固定でこの文言を返す
         msg = "入力内容と関連する社内文書が見つかりませんでした"
         st.warning(msg)
@@ -106,7 +106,7 @@ def display_contact_llm_response(resp):
     text, sources = _extract_answer_and_sources(resp)
     user_prompt = _last_user_prompt()
     # Unrelated input guard: if prompt clearly unrelated, force fixed message
-    if _looks_unrelated_to_corp_docs(user_prompt, sources):
+    if not getattr(ct, "ALLOW_OFFTOPIC_LLM", True) and _looks_unrelated_to_corp_docs(user_prompt, sources):
         msg = getattr(ct, "INQUIRY_NO_MATCH_ANSWER", "回答に必要な情報が見つかりませんでした。")
         st.warning(msg)
         return msg
