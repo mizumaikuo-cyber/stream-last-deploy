@@ -41,11 +41,35 @@ if chat_message:
     # Append to conversation log (for components' fallback detection)
     st.session_state.messages.append({"role": "user", "content": chat_message})
 
+    # Off-topic guard: skip LLM/retriever calls and show fixed message per mode
     try:
+        if hasattr(cp, "_looks_unrelated_to_corp_docs") and cp._looks_unrelated_to_corp_docs(chat_message, []):
+            if mode == ct.ANSWER_MODE_1:
+                fixed = "入力内容と関連する社内文書が見つかりませんでした"
+            else:
+                fixed = getattr(ct, "INQUIRY_NO_MATCH_ANSWER", "回答に必要な情報が見つかりませんでした。")
+            with st.chat_message("assistant"):
+                st.warning(fixed)
+            try:
+                st.session_state.messages.append({"role": "assistant", "content": fixed})
+            except Exception:
+                pass
+            st.stop()
+
+        # Normal LLM flow
         llm_resp = utils.get_llm_response(chat_message)
     except Exception as e:
         # If quota error and the intent is department listing, try CSV direct fallback
         err_msg = str(e)
+        # If off-topic (e.g., 天気/雑談) and quota error, prefer fixed message over fallbacks
+        if hasattr(cp, "_looks_unrelated_to_corp_docs") and cp._looks_unrelated_to_corp_docs(chat_message, []):
+            with st.chat_message("assistant"):
+                if mode == ct.ANSWER_MODE_1:
+                    fixed = "入力内容と関連する社内文書が見つかりませんでした"
+                else:
+                    fixed = getattr(ct, "INQUIRY_NO_MATCH_ANSWER", "回答に必要な情報が見つかりませんでした。")
+                st.warning(fixed)
+            st.stop()
         # Dept listing offline fallback
         if cp.detect_dept_listing(chat_message, dept_name=None) and (
             "insufficient_quota" in err_msg or "You exceeded your current quota" in err_msg or "Error code: 429" in err_msg
