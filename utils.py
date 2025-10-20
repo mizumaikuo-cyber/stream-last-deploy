@@ -75,16 +75,19 @@ def get_llm_response(chat_message: str):
         )
         doc_chain = create_stuff_documents_chain(llm, qa_prompt)
         chain = create_retrieval_chain(history_aware_retriever, doc_chain)
+        # Retrieval chain will populate 'context' for doc_chain. Provide inputs expected by prompts.
         result = chain.invoke({
             "input": chat_message,
             "chat_history": st.session_state.get("chat_history", []),
         })
     else:
         # No retriever: answer with LLM only using qa_prompt
+        # qa_prompt expects a 'context' variable; supply empty string when retriever is unavailable
         direct_chain = qa_prompt | llm
         answer_text = direct_chain.invoke({
             "input": chat_message,
             "chat_history": st.session_state.get("chat_history", []),
+            "context": "",
         })
         # Normalize to expected dict shape
         normalized_answer = (
