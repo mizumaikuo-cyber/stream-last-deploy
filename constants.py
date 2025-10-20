@@ -42,6 +42,11 @@ CHUNK_OVERLAP = 50
 # If False, show fixed messages without calling LLM for such inputs.
 ALLOW_OFFTOPIC_LLM = True
 
+# Optional agent settings (disabled by default)
+USE_AGENT = False
+MAX_AGENT_ITERATIONS = 3
+AGENT_EARLY_STOP_METHOD = "generate"
+
 SYSTEM_PROMPT_CREATE_INDEPENDENT_TEXT = "会話履歴と最新の入力をもとに、会話履歴なしでも理解できる独立した入力テキストを生成してください。"
 SYSTEM_PROMPT_DOC_SEARCH = """
     あなたは社内の文書検索アシスタントです。
